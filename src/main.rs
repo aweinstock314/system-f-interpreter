@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::fmt;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum FType {
     Var(String),
     Arr(Box<FType>, Box<FType>),
@@ -9,10 +9,11 @@ enum FType {
 }
 
 impl FType {
+    fn is_var(&self) -> bool { if let FType::Var(_) = self { true } else { false } }
     fn is_forall(&self) -> bool { if let FType::Forall(_, _) = self { true } else { false } }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum FTermChurch {
     Var(String),
     Lam(String, Box<FType>, Box<FTermChurch>),
@@ -46,7 +47,7 @@ impl fmt::Display for FType {
         use self::FType::*;
         match self {
             Var(x) => write!(f, "{}", x),
-            Arr(x, y) => write!(f, "{} -> {}", parens_if(x, x.is_forall()), y),
+            Arr(x, y) => write!(f, "{} -> {}", parens_if(x, !x.is_var()), y),
             Forall(x, y) => write!(f, "forall {}, {}", x, y),
         }
     }
@@ -66,6 +67,7 @@ impl fmt::Display for FTermChurch {
 }
 fn tvar<S: Into<String>>(x: S) -> FType { FType::Var(x.into()) }
 fn arr(x: FType, y: FType) -> FType { FType::Arr(Box::new(x), Box::new(y)) }
+fn forall<S: Into<String>>(x: S, y: FType) -> FType { FType::Forall(x.into(), Box::new(y)) }
 
 fn var<S: Into<String>>(x: S) -> FTermChurch { FTermChurch::Var(x.into()) }
 fn lam<S: Into<String>>(x: S, y: FType, z: FTermChurch) -> FTermChurch { FTermChurch::Lam(x.into(), Box::new(y), Box::new(z)) }
@@ -83,86 +85,94 @@ fn gensym(orig: &str, avoid: &HashSet<String>) -> String {
     panic!("Somehow gensym used more than 2^{64} ids without finding anything?")
 }
 
-fn freevars(term: &FTermChurch) -> HashSet<String> {
+fn freevars_term(term: &FTermChurch) -> HashSet<String> {
     use self::FTermChurch::*;
     let mut r = HashSet::new();
     match term {
         Var(x) => { r.insert(x.clone()); },
-        Lam(x, y, z) => { r.extend(freevars(&z)); r.remove(x); },
-        App(x, y) => { r.extend(freevars(&x)); r.extend(freevars(&y)); },
-        TLam(x, y) => { r.extend(freevars(&y)); }, // type variables don't shadow value variables
-        TApp(x, y) => { r.extend(freevars(&x)); },
+        Lam(x, y, z) => { r.extend(freevars_term(&z)); r.remove(x); },
+        App(x, y) => { r.extend(freevars_term(&x)); r.extend(freevars_term(&y)); },
+        TLam(x, y) => { r.extend(freevars_term(&y)); }, // type variables don't shadow value variables
+        TApp(x, y) => { r.extend(freevars_term(&x)); },
     }
     r
 }
 
-fn freetyvarsty(ty: &FType) -> HashSet<String> {
+fn freetyvars_ty(ty: &FType) -> HashSet<String> {
     use self::FType::*;
     let mut r = HashSet::new();
     match ty {
         Var(x) => { r.insert(x.clone()); }
-        Arr(x, y) => { r.extend(freetyvarsty(&x)); r.extend(freetyvarsty(&y)); }
-        Forall(x, y) => { r.extend(freetyvarsty(&y)); r.remove(x); }
+        Arr(x, y) => { r.extend(freetyvars_ty(&x)); r.extend(freetyvars_ty(&y)); }
+        Forall(x, y) => { r.extend(freetyvars_ty(&y)); r.remove(x); }
     }
     r
 }
 
-fn freetyvars(term: &FTermChurch) -> HashSet<String> {
+fn freetyvars_term(term: &FTermChurch) -> HashSet<String> {
     use self::FTermChurch::*;
     let mut r = HashSet::new();
     match term {
         Var(_) => {},
-        Lam(x, y, z) => { r.extend(freetyvarsty(&y));  },
-        App(x, y) => { r.extend(freetyvars(&x)); r.extend(freetyvars(&y)); },
-        TLam(x, y) => { r.extend(freetyvars(&y)); r.remove(x); },
-        TApp(x, y) => { r.extend(freetyvars(&x)); r.extend(freetyvarsty(&y)); }
+        Lam(x, y, z) => { r.extend(freetyvars_ty(&y));  },
+        App(x, y) => { r.extend(freetyvars_term(&x)); r.extend(freetyvars_term(&y)); },
+        TLam(x, y) => { r.extend(freetyvars_term(&y)); r.remove(x); },
+        TApp(x, y) => { r.extend(freetyvars_term(&x)); r.extend(freetyvars_ty(&y)); }
     }
     r
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum FContextElem {
     HasType(String, FType),
     TyVar(String),
 }
 
-/*
 fn alpha_eq_ty(x: FType, y: FType) -> bool {
     x == y // TODO: traverse into foralls
 }
 
-fn typecheck(ctx: &[FContextElem], term: FTermChurch, ty: FType) -> bool {
-    use self::FTermChurch::*;
-    match term {
-        Var(x) => ctx.contains(FContextElem::HasType(x, ty)),
-        Lam(x, y, z) => { 
-            if let FType::Arr(a, b) = ty {
-                let mut ctx = ctx.to_vec();
-                ctx.push(FContextElem::HasType(x, a));
-                alpha_eq_ty(a, y) && typecheck(&ctx, z, b)
-            } else {
-                false
-            }
-        },
-        App(x, y) => {
-            let (a, b) = if let Lam(_, a, _) = x { (*a, ty) } else { return false };
-            typecheck(ctx, x, FType::Arr(a, b)) && typecheck(ctx, y, a)
-        },
-        TLam(x, y) => {
-            if let FType::Var(a) = ty {
-                let mut ctx = ctx.to_vec();
-                ctx.push(FContextElem::TyVar(a));
-                typecheck(&ctx, y, ty) && a == x // TODO: should we generalize and substitute here, to allow typechecking `(tlam a => _) : forall b, _` when ascriptions are added?
-            } else {
-                false
-            }
-        },
-        TApp(x, y) => {
-            false // TODO: capture avoiding substitution
-        }
+fn substtyvar_ty(name: &str, replacement: FType, ty: FType) -> FType {
+    use self::FType::*;
+    match ty {
+        Var(x) => if x == name { replacement } else { tvar(x) },
+        Arr(x, y) => arr(substtyvar_ty(name, replacement.clone(), *x), substtyvar_ty(name, replacement, *y)),
+        Forall(x, y) => forall(x.as_ref(), if x == name { *y } else { substtyvar_ty(name, replacement, *y) }),
     }
 }
-*/
+
+fn typeinfer(ctx: &[FContextElem], term: FTermChurch) -> Option<FType> {
+    use self::FTermChurch::*;
+    match term {
+        Var(x) => {
+            ctx.iter().filter_map(|e| if let FContextElem::HasType(y, ty) = e { Some((y, ty)) } else { None }).find(|(y, _)| x == **y).map(|(_, ty)| ty.clone())
+        },
+        Lam(x, y, z) => {
+            let mut ctx = ctx.to_vec();
+            ctx.push(FContextElem::HasType(x, *y.clone()));
+            typeinfer(&ctx, *z).map(|w| arr(*y, w))
+
+        },
+        App(x, y) => {
+            typeinfer(ctx, *x).and_then(|t| typeinfer(ctx, *y).and_then(|b| {
+                if let FType::Arr(a, b2) = &t { if b == **b2 { return Some(b); } }
+                None
+            }))
+        },
+        TLam(x, y) => {
+            let mut ctx = ctx.to_vec();
+            ctx.push(FContextElem::TyVar(x.clone()));
+            typeinfer(&ctx, *y).map(|b| forall(x, b))
+        },
+        TApp(x, y) => {
+            if let Some(FType::Forall(a, b)) = typeinfer(ctx, *x) {
+                Some(substtyvar_ty(&a, *y, *b))
+            } else {
+                None
+            }
+        },
+    }
+}
 
 fn main() {
     let succ = FTermChurch::Var("succ".into());
@@ -171,4 +181,9 @@ fn main() {
     let example = { app(tapp(double.clone(), nat.clone()), lam("x", nat, app(succ.clone(), app(succ.clone(), var("x"))))) };
     println!("double = {}", double);
     println!("example = {}", example);
+    let x_arr_x = arr(tvar("X"), tvar("X"));
+    let tdouble = forall("X", arr(x_arr_x.clone(), x_arr_x.clone()));
+    let inferred = typeinfer(&[], double.clone());
+    println!("typeinfer result for double: {:?}", inferred.clone().map(|x| format!("{}", x)));
+    println!("expected type of double = {}, equivalent to inferred: {}", tdouble.clone(), inferred == Some(tdouble));
 }
