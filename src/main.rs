@@ -174,16 +174,68 @@ fn typeinfer(ctx: &[FContextElem], term: FTermChurch) -> Option<FType> {
     }
 }
 
+fn substvar_term(name: &str, replacement: FTermChurch, term: FTermChurch) -> FTermChurch {
+    use self::FTermChurch::*;
+    match term {
+        Var(ref x) => if x == name { replacement } else { term }
+        _ => unimplemented!(),
+    }
+}
+
+fn substtyvar_term(name: &str, replacement: FType, term: FTermChurch) -> FTermChurch {
+    use self::FTermChurch::*;
+    match term {
+        Var(_) => term,
+        Lam(x, y, z) => lam(x, substtyvar_ty(name, replacement.clone(), *y), substtyvar_term(name, replacement, *z)),
+        App(x, y) => app(substtyvar_term(name, replacement.clone(), *x), substtyvar_term(name, replacement, *y)),
+        TLam(x, y) => {
+            let fvr = freetyvars_ty(&replacement);
+            tlam(&*x, if x == name { *y } else { substtyvar_term(name, replacement, *y)})
+        },
+        TApp(x, y) => tapp(substtyvar_term(name, replacement.clone(), *x), substtyvar_ty(name, replacement, *y)),
+    }
+}
+
+fn smallstep(term: FTermChurch) -> Option<FTermChurch> {
+    use self::FTermChurch::*;
+    match term {
+        Var(_) => None,
+        Lam(_, _, _) => None,
+        App(e1, e2) => {
+            if !e1.is_lam() { return smallstep(*e1).map(|x| app(x, *e2)); }
+            if !e2.is_lam() { return smallstep(*e2).map(|x| app(*e1, x)); }
+            match *e1 {
+                Lam(x, _, z) => Some(substvar_term(&x, *e2, *z)),
+                _ => None
+            }
+        }
+        TLam(x, y) => smallstep(*y).map(|t| tlam(x, t)),
+        TApp(x, y) => match *x {
+            TLam(a, b) => Some(substtyvar_term(&a, *y, *b)),
+            _ => None
+        }
+    }
+}
+
 fn main() {
     let succ = FTermChurch::Var("succ".into());
     let nat = FType::Var("nat".into());
     let double = { let x = tvar("X"); tlam("X", lam("f", arr(x.clone(), x.clone()), lam("a", x.clone(), app(var("f"), app(var("f"), var("a")))))) };
     let example = { app(tapp(double.clone(), nat.clone()), lam("x", nat, app(succ.clone(), app(succ.clone(), var("x"))))) };
     println!("double = {}", double);
-    println!("example = {}", example);
     let x_arr_x = arr(tvar("X"), tvar("X"));
     let tdouble = forall("X", arr(x_arr_x.clone(), x_arr_x.clone()));
     let inferred = typeinfer(&[], double.clone());
     println!("typeinfer result for double: {:?}", inferred.clone().map(|x| format!("{}", x)));
     println!("expected type of double = {}, equivalent to inferred: {}", tdouble.clone(), inferred == Some(tdouble));
+    println!("example = {}", example);
+    let natctx = [FContextElem::TyVar("nat".into()), FContextElem::HasType("succ".into(), arr(tvar("nat"), tvar("nat")))];
+    println!("natctx = {:?}", natctx);
+    println!("typeinfer result for example: {:?}", typeinfer(&natctx, example.clone()).map(|x| format!("{}", x)));
+    let mut tmp = Some(example);
+    while let Some(old) = tmp {
+        let new = smallstep(old.clone());
+        println!("{} --> {:?}", old, new.clone().map(|x| format!("{}", x)));
+        tmp = new;
+    }
 }
