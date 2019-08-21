@@ -17,7 +17,6 @@ impl FType {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum FTermChurch {
     Var(String),
-    Prim(String),
     Lam(String, Box<FType>, Box<FTermChurch>),
     App(Box<FTermChurch>, Box<FTermChurch>),
     TLam(String, Box<FTermChurch>),
@@ -34,8 +33,7 @@ impl FTermChurch {
     }
     fn is_app(&self) -> bool { if let FTermChurch::App(_, _) = self { true } else { false } }
     fn is_tapp(&self) -> bool { if let FTermChurch::TApp(_, _) = self { true } else { false } }
-    fn is_prim(&self) -> bool { if let FTermChurch::Prim(_) = self { true } else { false } }
-    fn is_value(&self) -> bool { self.is_lam() || self.is_prim() }
+    fn is_value(&self) -> bool { self.is_lam() }
 }
 
 fn parens_if<X: fmt::Display>(x: X, use_parens: bool) -> String {
@@ -61,10 +59,9 @@ impl fmt::Display for FTermChurch {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::FTermChurch::*;
         match self {
-            Prim(x) => write!(f, "{}", x),
             Var(x) => write!(f, "{}", x),
             Lam(x, y, z) => write!(f, "lam {} : {} => {}", x, y, z),
-            App(x, y) => write!(f, "{} {}", parens_if(x, !x.is_var() && !x.is_prim()), parens_if(y, !y.is_var() && !y.is_prim())),
+            App(x, y) => write!(f, "{} {}", parens_if(x, !x.is_var()), parens_if(y, !y.is_var())),
             TLam(x, y) => write!(f, "tlam {} => {}", x, y),
             TApp(x, y) => write!(f, "{} [{}]", parens_if(x, x.is_lam()), y),
         }
@@ -73,8 +70,6 @@ impl fmt::Display for FTermChurch {
 fn tvar<S: Into<String>>(x: S) -> FType { FType::Var(x.into()) }
 fn arr(x: FType, y: FType) -> FType { FType::Arr(Box::new(x), Box::new(y)) }
 fn forall<S: Into<String>>(x: S, y: FType) -> FType { FType::Forall(x.into(), Box::new(y)) }
-
-fn prim<S: Into<String>>(x: S) -> FTermChurch { FTermChurch::Prim(x.into()) }
 fn var<S: Into<String>>(x: S) -> FTermChurch { FTermChurch::Var(x.into()) }
 fn lam<S: Into<String>>(x: S, y: FType, z: FTermChurch) -> FTermChurch { FTermChurch::Lam(x.into(), Box::new(y), Box::new(z)) }
 fn app(x: FTermChurch, y: FTermChurch) -> FTermChurch { FTermChurch::App(Box::new(x), Box::new(y)) }
@@ -95,7 +90,6 @@ fn freevars_term(term: &FTermChurch) -> HashSet<String> {
     use self::FTermChurch::*;
     let mut r = HashSet::new();
     match term {
-        Prim(_) => {},
         Var(x) => { r.insert(x.clone()); },
         Lam(x, y, z) => { r.extend(freevars_term(&z)); r.remove(x); },
         App(x, y) => { r.extend(freevars_term(&x)); r.extend(freevars_term(&y)); },
@@ -120,7 +114,6 @@ fn freetyvars_term(term: &FTermChurch) -> HashSet<String> {
     use self::FTermChurch::*;
     let mut r = HashSet::new();
     match term {
-        Prim(_) => {},
         Var(_) => {},
         Lam(x, y, z) => { r.extend(freetyvars_ty(&y));  },
         App(x, y) => { r.extend(freetyvars_term(&x)); r.extend(freetyvars_term(&y)); },
@@ -152,7 +145,6 @@ fn substtyvar_ty(name: &str, replacement: FType, ty: FType) -> FType {
 fn typeinfer(primenv: &HashMap<String, FType>, ctx: &[FContextElem], term: FTermChurch) -> Option<FType> {
     use self::FTermChurch::*;
     match term {
-        Prim(x) => { primenv.get(&x).cloned() },
         Var(x) => {
             ctx.iter().filter_map(|e| if let FContextElem::HasType(y, ty) = e { Some((y, ty)) } else { None }).find(|(y, _)| x == **y).map(|(_, ty)| ty.clone())
         },
@@ -188,7 +180,6 @@ fn typeinfer(primenv: &HashMap<String, FType>, ctx: &[FContextElem], term: FTerm
 fn substvar_term(name: &str, replacement: FTermChurch, term: FTermChurch) -> FTermChurch {
     use self::FTermChurch::*;
     match term {
-        Prim(_) => term,
         Var(ref x) => if x == name { replacement } else { term }
         Lam(x, y, z) => {
             let fvr = freevars_term(&replacement);
@@ -214,7 +205,6 @@ fn substvar_term(name: &str, replacement: FTermChurch, term: FTermChurch) -> FTe
 fn substtyvar_term(name: &str, replacement: FType, term: FTermChurch) -> FTermChurch {
     use self::FTermChurch::*;
     match term {
-        Prim(_) => term,
         Var(_) => term,
         Lam(x, y, z) => lam(x, substtyvar_ty(name, replacement.clone(), *y), substtyvar_term(name, replacement, *z)),
         App(x, y) => app(substtyvar_term(name, replacement.clone(), *x), substtyvar_term(name, replacement, *y)),
@@ -239,16 +229,15 @@ fn substtyvar_term(name: &str, replacement: FType, term: FTermChurch) -> FTermCh
 fn smallstep(term: FTermChurch) -> Option<FTermChurch> {
     use self::FTermChurch::*;
     match term {
-        Prim(_) => None,
         Var(_) => None,
         Lam(_, _, _) => None,
         App(e1, e2) => {
+            if !e1.is_value() { let r = smallstep(*e1.clone()).map(|x| app(x, *e2.clone())); if r.is_some() { return r; } }
+            if !e2.is_value() { let r = smallstep(*e2.clone()).map(|x| app(*e1.clone(), x)); if r.is_some() { return r; } }
             match *e1 {
                 Lam(x, _, z) => return Some(substvar_term(&x, *e2, *z)),
                 _ => (),
             }
-            if !e1.is_value() { return smallstep(*e1).map(|x| app(x, *e2)); }
-            if !e2.is_value() { return smallstep(*e2).map(|x| app(*e1, x)); }
             None
         }
         TLam(x, y) => smallstep(*y).map(|t| tlam(x, t)),
@@ -260,8 +249,8 @@ fn smallstep(term: FTermChurch) -> Option<FTermChurch> {
 }
 
 fn main() {
-    let succ = prim("succ");
-    let nat = FType::Var("nat".into());
+    let succ = var("succ");
+    let nat = tvar("nat");
     let double = { let x = tvar("X"); tlam("X", lam("f", arr(x.clone(), x.clone()), lam("a", x.clone(), app(var("f"), app(var("f"), var("a")))))) };
     let example = { app(tapp(double.clone(), nat.clone()), lam("x", nat, app(succ.clone(), app(succ.clone(), var("x"))))) };
     println!("double = {}", double);
@@ -276,7 +265,7 @@ fn main() {
     println!("natctx = {:?}", natctx);
     println!("typeinfer result for example: {:?}", typeinfer(&natenv, &natctx, example.clone()).map(|x| format!("{}", x)));
     let idnat = lam("x", tvar("nat"), var("x"));
-    let mut tmp = Some(app(example, prim("0")));
+    let mut tmp = Some(app(example, var("0")));
     while let Some(old) = tmp {
         let new = smallstep(old.clone());
         println!("{} --> {:?}", old, new.clone().map(|x| format!("{}", x)));
