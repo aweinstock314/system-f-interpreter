@@ -52,7 +52,7 @@ pub fn substtyvar_ty(name: &str, replacement: FType, ty: FType) -> FType {
     match ty {
         Var(x) => if x == name { replacement } else { tvar(x) },
         Arr(x, y) => arr(substtyvar_ty(name, replacement.clone(), *x), substtyvar_ty(name, replacement, *y)),
-        Forall(x, y) => forall(x.as_ref(), if x == name { *y } else { substtyvar_ty(name, replacement, *y) }), // TODO: should probably use subst_captureavoid_binder
+        Forall(x, y) => { let (newname, newbody) = subst_captureavoid_binder(name, replacement, &*x, *y, freetyvars_ty, substtyvar_ty, tvar); forall(newname, newbody) },
     }
 }
 
