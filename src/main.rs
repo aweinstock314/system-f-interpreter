@@ -1,127 +1,10 @@
-use std::collections::HashMap;
 use std::collections::HashSet;
-use std::fmt;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum FType {
-    Var(String),
-    Arr(Box<FType>, Box<FType>),
-    Forall(String, Box<FType>),
-}
+pub mod abssyn;
+use self::abssyn::*;
 
-impl FType {
-    fn is_var(&self) -> bool { if let FType::Var(_) = self { true } else { false } }
-    fn is_forall(&self) -> bool { if let FType::Forall(_, _) = self { true } else { false } }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum FTermChurch {
-    Var(String),
-    Lam(String, Box<FType>, Box<FTermChurch>),
-    App(Box<FTermChurch>, Box<FTermChurch>),
-    TLam(String, Box<FTermChurch>),
-    TApp(Box<FTermChurch>, Box<FType>),
-}
-
-impl FTermChurch {
-    fn is_var(&self) -> bool { if let FTermChurch::Var(_) = self { true } else { false } }
-    fn is_lam(&self) -> bool {
-        match self {
-            FTermChurch::Lam(_, _, _) | FTermChurch::TLam(_, _) => true,
-            _ => false,
-        }
-    }
-    fn is_app(&self) -> bool { if let FTermChurch::App(_, _) = self { true } else { false } }
-    fn is_tapp(&self) -> bool { if let FTermChurch::TApp(_, _) = self { true } else { false } }
-    fn is_value(&self) -> bool { self.is_lam() }
-}
-
-fn parens_if<X: fmt::Display>(x: X, use_parens: bool) -> String {
-    if use_parens {
-        format!("({})", x)
-    } else {
-        format!("{}", x)
-    }
-}
-
-impl fmt::Display for FType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::FType::*;
-        match self {
-            Var(x) => write!(f, "{}", x),
-            Arr(x, y) => write!(f, "{} -> {}", parens_if(x, !x.is_var()), y),
-            Forall(x, y) => write!(f, "forall {}, {}", x, y),
-        }
-    }
-}
-
-impl fmt::Display for FTermChurch {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::FTermChurch::*;
-        match self {
-            Var(x) => write!(f, "{}", x),
-            Lam(x, y, z) => write!(f, "lam {} : {} => {}", x, y, z),
-            App(x, y) => write!(f, "{} {}", parens_if(x, !x.is_var()), parens_if(y, !y.is_var())),
-            TLam(x, y) => write!(f, "tlam {} => {}", x, y),
-            TApp(x, y) => write!(f, "{} [{}]", parens_if(x, x.is_lam()), y),
-        }
-    }
-}
-fn tvar<S: Into<String>>(x: S) -> FType { FType::Var(x.into()) }
-fn arr(x: FType, y: FType) -> FType { FType::Arr(Box::new(x), Box::new(y)) }
-fn forall<S: Into<String>>(x: S, y: FType) -> FType { FType::Forall(x.into(), Box::new(y)) }
-fn var<S: Into<String>>(x: S) -> FTermChurch { FTermChurch::Var(x.into()) }
-fn lam<S: Into<String>>(x: S, y: FType, z: FTermChurch) -> FTermChurch { FTermChurch::Lam(x.into(), Box::new(y), Box::new(z)) }
-fn app(x: FTermChurch, y: FTermChurch) -> FTermChurch { FTermChurch::App(Box::new(x), Box::new(y)) }
-fn tlam<S: Into<String>>(x: S, y: FTermChurch) -> FTermChurch { FTermChurch::TLam(x.into(), Box::new(y)) }
-fn tapp(x: FTermChurch, y: FType) -> FTermChurch { FTermChurch::TApp(Box::new(x), Box::new(y)) }
-
-fn gensym(orig: &str, avoid: &HashSet<String>) -> String {
-    for i in 0u64.. {
-        let ret = format!("{}{}", orig, i);
-        if !avoid.contains(&ret[..]) {
-            return ret;
-        }
-    }
-    panic!("Somehow gensym used more than 2^{64} ids without finding anything?")
-}
-
-fn freevars_term(term: &FTermChurch) -> HashSet<String> {
-    use self::FTermChurch::*;
-    let mut r = HashSet::new();
-    match term {
-        Var(x) => { r.insert(x.clone()); },
-        Lam(x, y, z) => { r.extend(freevars_term(&z)); r.remove(x); },
-        App(x, y) => { r.extend(freevars_term(&x)); r.extend(freevars_term(&y)); },
-        TLam(x, y) => { r.extend(freevars_term(&y)); }, // type variables don't shadow value variables
-        TApp(x, y) => { r.extend(freevars_term(&x)); },
-    }
-    r
-}
-
-fn freetyvars_ty(ty: &FType) -> HashSet<String> {
-    use self::FType::*;
-    let mut r = HashSet::new();
-    match ty {
-        Var(x) => { r.insert(x.clone()); }
-        Arr(x, y) => { r.extend(freetyvars_ty(&x)); r.extend(freetyvars_ty(&y)); }
-        Forall(x, y) => { r.extend(freetyvars_ty(&y)); r.remove(x); }
-    }
-    r
-}
-
-fn freetyvars_term(term: &FTermChurch) -> HashSet<String> {
-    use self::FTermChurch::*;
-    let mut r = HashSet::new();
-    match term {
-        Var(_) => {},
-        Lam(x, y, z) => { r.extend(freetyvars_ty(&y));  },
-        App(x, y) => { r.extend(freetyvars_term(&x)); r.extend(freetyvars_term(&y)); },
-        TLam(x, y) => { r.extend(freetyvars_term(&y)); r.remove(x); },
-        TApp(x, y) => { r.extend(freetyvars_term(&x)); r.extend(freetyvars_ty(&y)); }
-    }
-    r
-}
+pub mod substitution;
+use self::substitution::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum FContextElem {
@@ -129,20 +12,7 @@ enum FContextElem {
     TyVar(String),
 }
 
-fn alpha_eq_ty(x: FType, y: FType) -> bool {
-    x == y // TODO: traverse into foralls
-}
-
-fn substtyvar_ty(name: &str, replacement: FType, ty: FType) -> FType {
-    use self::FType::*;
-    match ty {
-        Var(x) => if x == name { replacement } else { tvar(x) },
-        Arr(x, y) => arr(substtyvar_ty(name, replacement.clone(), *x), substtyvar_ty(name, replacement, *y)),
-        Forall(x, y) => forall(x.as_ref(), if x == name { *y } else { substtyvar_ty(name, replacement, *y) }),
-    }
-}
-
-fn typeinfer(primenv: &HashMap<String, FType>, ctx: &[FContextElem], term: FTermChurch) -> Option<FType> {
+fn typeinfer(ctx: &[FContextElem], term: FTermChurch) -> Option<FType> {
     use self::FTermChurch::*;
     match term {
         Var(x) => {
@@ -151,65 +21,27 @@ fn typeinfer(primenv: &HashMap<String, FType>, ctx: &[FContextElem], term: FTerm
         Lam(x, y, z) => {
             let mut ctx = ctx.to_vec();
             ctx.push(FContextElem::HasType(x, *y.clone()));
-            typeinfer(primenv, &ctx, *z).map(|w| arr(*y, w))
+            typeinfer(&ctx, *z).map(|w| arr(*y, w))
 
         },
         App(x, y) => {
-            typeinfer(primenv, ctx, *x).and_then(|t| typeinfer(primenv, ctx, *y).and_then(|b| {
-                if let FType::Arr(a, b2) = &t { if b == **b2 { return Some(b); } }
+            typeinfer(ctx, *x).and_then(|t| typeinfer(ctx, *y).and_then(|b| {
+                if let FType::Arr(_, b2) = &t { if b == **b2 { return Some(b); } }
                 None
             }))
         },
         TLam(x, y) => {
             let mut ctx = ctx.to_vec();
             ctx.push(FContextElem::TyVar(x.clone()));
-            typeinfer(primenv, &ctx, *y).map(|b| forall(x, b))
+            typeinfer(&ctx, *y).map(|b| forall(x, b))
         },
         TApp(x, y) => {
-            if let Some(FType::Forall(a, b)) = typeinfer(primenv, ctx, *x) {
+            if let Some(FType::Forall(a, b)) = typeinfer(ctx, *x) {
                 Some(substtyvar_ty(&a, *y, *b))
             } else {
                 None
             }
         },
-    }
-}
-
-fn subst_captureavoid_binder<X, Y, FV, SR, V>(name: &str, replacement: X, oldname: &str, oldbody: Y, freevars: FV, subst_rec: SR, mkvar: V) -> (String, Y) 
-    where Y: Clone, FV: Fn(&X) -> HashSet<String>, SR: Fn(&str, X, Y) -> Y, V: Fn(String) -> X {
-    let fvr = freevars(&replacement);
-    let (newname, newbody) = match (oldname == name, fvr.contains(oldname)) {
-        (true, _) => (oldname.into(), oldbody.clone()),
-        (false, true) => {
-            let newname = gensym(oldname, &fvr);
-            let body0 = subst_rec(oldname, mkvar(newname.clone()), oldbody);
-            let body1 = subst_rec(name, replacement, body0.clone());
-            (newname.clone(), body1)
-        },
-        (false, false) => { (oldname.to_string(), subst_rec(name, replacement, oldbody)) },
-    };
-    (newname, newbody)
-}
-
-fn substvar_term(name: &str, replacement: FTermChurch, term: FTermChurch) -> FTermChurch {
-    use self::FTermChurch::*;
-    match term {
-        Var(ref x) => if x == name { replacement } else { term }
-        Lam(x, y, z) => { let (newname, newbody) = subst_captureavoid_binder(name, replacement, &*x, *z, freevars_term, substvar_term, var); lam(newname, *y, newbody) },
-        App(x, y) => app(substvar_term(name, replacement.clone(), *x), substvar_term(name, replacement, *y)),
-        TLam(x, y) => tlam(x, substvar_term(name, replacement, *y)),
-        TApp(x, y) => tapp(substvar_term(name, replacement.clone(), *x), *y)
-    }
-}
-
-fn substtyvar_term(name: &str, replacement: FType, term: FTermChurch) -> FTermChurch {
-    use self::FTermChurch::*;
-    match term {
-        Var(_) => term,
-        Lam(x, y, z) => lam(x, substtyvar_ty(name, replacement.clone(), *y), substtyvar_term(name, replacement, *z)),
-        App(x, y) => app(substtyvar_term(name, replacement.clone(), *x), substtyvar_term(name, replacement, *y)),
-        TLam(x, y) => { let (newname, newbody) = subst_captureavoid_binder(name, replacement, &*x, *y, freetyvars_ty, substtyvar_term, tvar); tlam(newname, newbody) }
-        TApp(x, y) => tapp(substtyvar_term(name, replacement.clone(), *x), substtyvar_ty(name, replacement, *y)),
     }
 }
 
@@ -243,16 +75,15 @@ fn main() {
     println!("double = {}", double);
     let x_arr_x = arr(tvar("X"), tvar("X"));
     let tdouble = forall("X", arr(x_arr_x.clone(), x_arr_x.clone()));
-    let inferred = typeinfer(&HashMap::new(), &[], double.clone());
+    let inferred = typeinfer(&[], double.clone());
     println!("typeinfer result for double: {:?}", inferred.clone().map(|x| format!("{}", x)));
     println!("expected type of double = {}, equivalent to inferred: {}", tdouble.clone(), inferred == Some(tdouble));
     println!("example = {}", example);
-    let natctx = [FContextElem::TyVar("nat".into())];
-    let natenv = [("succ".into(), arr(tvar("nat"), tvar("nat")))].iter().cloned().collect::<HashMap<String, FType>>();
+    let natctx = [FContextElem::TyVar("nat".into()), FContextElem::HasType("succ".into(), arr(tvar("nat"), tvar("nat")))];
     println!("natctx = {:?}", natctx);
-    println!("typeinfer result for example: {:?}", typeinfer(&natenv, &natctx, example.clone()).map(|x| format!("{}", x)));
+    println!("typeinfer result for example: {:?}", typeinfer(&natctx, example.clone()).map(|x| format!("{}", x)));
     let idnat = lam("x", tvar("nat"), var("x"));
-    let mut tmp = Some(app(example, var("0")));
+    let mut tmp = Some(app(idnat, app(example, var("0"))));
     while let Some(old) = tmp {
         let new = smallstep(old.clone());
         println!("{} --> {:?}", old, new.clone().map(|x| format!("{}", x)));
