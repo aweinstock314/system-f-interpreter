@@ -1,7 +1,6 @@
 /// Abstract Syntax for F-terms and F-types
 use std::fmt;
 
-
 // The trees themselves
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FType {

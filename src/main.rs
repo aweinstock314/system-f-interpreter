@@ -1,3 +1,5 @@
+#[macro_use] extern crate nom;
+
 use std::collections::HashSet;
 
 pub mod abssyn;
@@ -5,6 +7,9 @@ use self::abssyn::*;
 
 pub mod substitution;
 use self::substitution::*;
+
+pub mod parser;
+use self::parser::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum FContextElem {
