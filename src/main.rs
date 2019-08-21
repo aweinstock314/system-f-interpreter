@@ -99,6 +99,10 @@ fn test_evaluation() {
 
 fn main() {
     use std::io;
+    let mut ctx = vec![];
+    ctx.push(FContextElem::TyVar("nat".into()));
+    ctx.push(FContextElem::HasType("0".into(), tvar("nat")));
+    ctx.push(FContextElem::HasType("succ".into(), arr(tvar("nat"), tvar("nat"))));
     loop {
         let mut line = String::new();
         let len = io::stdin().read_line(&mut line).unwrap();
@@ -106,7 +110,7 @@ fn main() {
         println!("Got {:?}", line);
         if let Ok((_, term)) = parse_term(line.as_bytes()) {
             println!("Parsed as {:?}", term);
-            if let Some(ty) = typeinfer(&[], term.clone()) {
+            if let Some(ty) = typeinfer(&ctx, term.clone()) {
                 println!("It typechecks as {}", ty);
                 let mut tmp = Some(term);
                 while let Some(old) = tmp {
