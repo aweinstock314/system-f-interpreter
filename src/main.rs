@@ -1,4 +1,4 @@
-#[macro_use] extern crate nom;
+extern crate nom;
 
 use std::collections::HashSet;
 
@@ -72,7 +72,8 @@ fn smallstep(term: FTermChurch) -> Option<FTermChurch> {
     }
 }
 
-fn main() {
+#[test]
+fn test_evaluation() {
     let succ = var("succ");
     let nat = tvar("nat");
     let double = { let x = tvar("X"); tlam("X", lam("f", arr(x.clone(), x.clone()), lam("a", x.clone(), app(var("f"), app(var("f"), var("a")))))) };
@@ -93,5 +94,27 @@ fn main() {
         let new = smallstep(old.clone());
         println!("{} --> {:?}", old, new.clone().map(|x| format!("{}", x)));
         tmp = new;
+    }
+}
+
+fn main() {
+    use std::io;
+    loop {
+        let mut line = String::new();
+        let len = io::stdin().read_line(&mut line).unwrap();
+        if len == 0 { break; }
+        println!("Got {:?}", line);
+        if let Ok((_, term)) = parse_term(line.as_bytes()) {
+            println!("Parsed as {:?}", term);
+            if let Some(ty) = typeinfer(&[], term.clone()) {
+                println!("It typechecks as {}", ty);
+                let mut tmp = Some(term);
+                while let Some(old) = tmp {
+                    let new = smallstep(old.clone());
+                    println!("{} --> {:?}", old, new.clone().map(|x| format!("{}", x)));
+                    tmp = new;
+                }
+            }
+        }
     }
 }

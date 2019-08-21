@@ -23,7 +23,7 @@ fn parse_arr(input: &[u8]) -> IResult<&[u8], FType> { map(separated_pair(parse_p
 fn parse_forall(input: &[u8]) -> IResult<&[u8], FType> { map(tuple((tag(b"forall"), multispace1, variable, tag(b","), multispace0, parse_type)), |(_, _, a, _, _, b)| forall(a, b))(input) }
 
 fn parse_paren_type(input: &[u8]) -> IResult<&[u8], FType> { alt((parse_tvar, parse_forall, delimited(tag(b"("), parse_type, tag(b")"))))(input) }
-fn parse_type(input: &[u8]) -> IResult<&[u8], FType> { alt((parse_arr, parse_paren_type))(input) }
+pub fn parse_type(input: &[u8]) -> IResult<&[u8], FType> { alt((parse_arr, parse_paren_type))(input) }
 
 fn parse_var(input: &[u8]) -> IResult<&[u8], FTermChurch> { map(variable, var)(input) }
 fn parse_lam(input: &[u8]) -> IResult<&[u8], FTermChurch> {
@@ -38,7 +38,7 @@ fn parse_tlam(input: &[u8]) -> IResult<&[u8], FTermChurch> {
 fn parse_app(input: &[u8]) -> IResult<&[u8], FTermChurch> { map(separated_pair(parse_paren_term, multispace1, parse_paren_term), |(a, b)| app(a, b))(input) }
 fn parse_tapp(input: &[u8]) -> IResult<&[u8], FTermChurch> { map(separated_pair(parse_paren_term, multispace1, delimited(tuple((tag(b"["), multispace0)), parse_paren_type, tuple((multispace0, tag(b"]"))))), |(a, b)| tapp(a, b))(input)  }
 fn parse_paren_term(input: &[u8]) -> IResult<&[u8], FTermChurch> { alt((parse_var, parse_lam, parse_tlam, delimited(tag(b"("), parse_term, tag(b")"))))(input) }
-fn parse_term(input: &[u8]) -> IResult<&[u8], FTermChurch> { alt((parse_app, parse_tapp, parse_paren_term))(input) }
+pub fn parse_term(input: &[u8]) -> IResult<&[u8], FTermChurch> { alt((parse_app, parse_tapp, parse_paren_term))(input) }
 
 #[test]
 fn test_parse_types() {
@@ -60,4 +60,6 @@ fn test_parse_terms() {
     println!("{:?}", parse_term(b"lam x : nat -> nat => x"));
     println!("{:?}", parse_term(b"lam x : forall x, x => x [x]"));
     println!("{:?}", parse_term(b"(lam x : nat => x) ((((tlam X => lam f : X -> X => lam a : X => f (f a)) [nat]) (lam x : nat => succ (succ x))) 0)"));
+    println!("{:?}", parse_term(b"lam 5 : nat => lam f : nat -> nat => f f 5"));
+    println!("{:?}", parse_term(b"lam 5 : nat => lam f : nat -> nat => f (f 5)"));
 }
