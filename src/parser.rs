@@ -42,24 +42,41 @@ pub fn parse_term(input: &[u8]) -> IResult<&[u8], FTermChurch> { alt((parse_app,
 
 #[test]
 fn test_parse_types() {
-    println!("{:?}", parse_type(b"nat"));
-    println!("{:?}", parse_type(b"nat -> nat"));
-    println!("{:?}", parse_type(b"(nat -> nat)"));
-    println!("{:?}", parse_type(b"(nat -> nat) -> nat"));
-    println!("{:?}", parse_type(b"nat -> (nat -> nat)"));
-    println!("{:?}", parse_type(b"forall X, nat -> nat"));
-    println!("{:?}", parse_type(b"forall X, (nat -> nat)"));
-    println!("{:?}", parse_type(b"forall X, forall Y, Y -> X"));
-    println!("{:?}", parse_type(b"X -> forall y, y"));
+    let f = |s: &[u8], y: FType| {
+        let res = parse_type(s);
+        println!("{:?} parses as {:?}", String::from_utf8_lossy(s), res);
+        let (rem, x) = res.unwrap();
+        assert_eq!(rem, &[]);
+        assert_eq!(x, y);
+    };
+    f(b"nat", tvar("nat"));
+    f(b"nat -> nat", arr(tvar("nat"), tvar("nat")));
+    f(b"(nat -> nat)", arr(tvar("nat"), tvar("nat")));
+    f(b"(nat -> nat) -> nat", arr(arr(tvar("nat"), tvar("nat")), tvar("nat")));
+    f(b"nat -> (nat -> nat)", arr(tvar("nat"), arr(tvar("nat"), tvar("nat"))));
+    f(b"forall X, nat -> nat", forall("X", arr(tvar("nat"), tvar("nat"))));
+    f(b"forall X, (nat -> nat)", forall("X", arr(tvar("nat"), tvar("nat"))));
+    f(b"forall X, forall Y, Y -> X", forall("X", forall("Y", arr(tvar("Y"), tvar("X")))));
+    f(b"X -> forall y, y", arr(tvar("X"), forall("y", tvar("y"))));
 }
 
 
 #[test]
 fn test_parse_terms() {
-    println!("{:?}", parse_term(b"lam x : nat => x"));
-    println!("{:?}", parse_term(b"lam x : nat -> nat => x"));
-    println!("{:?}", parse_term(b"lam x : forall x, x => x [x]"));
+    let f = |s: &[u8], y: FTermChurch| {
+        let res = parse_term(s);
+        println!("{:?} parses as {:?}", String::from_utf8_lossy(s), res);
+        let (rem, x) = res.unwrap();
+        assert_eq!(rem, &[]);
+        assert_eq!(x, y);
+    };
+    f(b"lam x : nat => x", lam("x", tvar("nat"), var("x")));
+    let nan = arr(tvar("nat"), tvar("nat"));
+    f(b"lam x : nat -> nat => x", lam("x", nan.clone(), var("x")));
+    f(b"lam x : forall x, x => x [x]", lam("x", forall("x", tvar("x")), tapp(var("x"), tvar("x"))));
     println!("{:?}", parse_term(b"(lam x : nat => x) ((((tlam X => lam f : X -> X => lam a : X => f (f a)) [nat]) (lam x : nat => succ (succ x))) 0)"));
-    println!("{:?}", parse_term(b"lam 5 : nat => lam f : nat -> nat => f f 5"));
-    println!("{:?}", parse_term(b"lam 5 : nat => lam f : nat -> nat => f (f 5)"));
+    f(b"lam 5 : nat => lam f : nat -> nat => (f f) 5", lam("5", tvar("nat"), lam("f", nan.clone(), app(app(var("f"), var("f")), var("5"))))); // should work without parens...
+    f(b"lam 5 : nat => lam f : nat -> nat => f (f 5)", lam("5", tvar("nat"), lam("f", nan.clone(), app(var("f"), app(var("f"), var("5"))))));
+    println!("{:?}", parse_term(b"(tlam A => lam x : A => x) [nat] 0"));
+    f(b"((tlam A => lam x : A => x) [nat]) 0", app(tapp(tlam("A", lam("x", tvar("A"), var("x"))), tvar("nat")), var("0")));
 }
