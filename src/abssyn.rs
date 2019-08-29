@@ -18,6 +18,13 @@ pub enum FTermChurch {
     TApp(Box<FTermChurch>, Box<FType>),
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FOmegaKind {
+    Star,
+    Arr(Box<FOmegaKind>, Box<FOmegaKind>),
+}
+
+
 // smart constructors that handle boxing/string allocation
 pub fn tvar<S: Into<String>>(x: S) -> FType { FType::Var(x.into()) }
 pub fn arr(x: FType, y: FType) -> FType { FType::Arr(Box::new(x), Box::new(y)) }
@@ -49,6 +56,10 @@ impl FTermChurch {
     pub fn is_value(&self) -> bool { self.is_lam() }
 }
 
+impl FOmegaKind {
+    pub fn is_star(&self) -> bool { if let FOmegaKind::Star = self { true } else { false } }
+}
+
 // pretty printing and printing machinery
 pub fn parens_if<X: fmt::Display>(x: X, use_parens: bool) -> String {
     if use_parens {
@@ -78,6 +89,16 @@ impl fmt::Display for FTermChurch {
             App(x, y) => write!(f, "{} {}", parens_if(x, !x.is_var()), parens_if(y, !y.is_var())),
             TLam(x, y) => write!(f, "tlam {} => {}", x, y),
             TApp(x, y) => write!(f, "{} [{}]", parens_if(x, x.is_lam()), y),
+        }
+    }
+}
+
+impl fmt::Display for FOmegaKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::FOmegaKind::*;
+        match self {
+            Star => write!(f, "*"),
+            Arr(x, y) => write!(f, "{} -> {}", parens_if(x, !x.is_star()), y),
         }
     }
 }
