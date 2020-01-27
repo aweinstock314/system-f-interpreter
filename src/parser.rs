@@ -35,7 +35,7 @@ fn parse_tlam(input: &[u8]) -> IResult<&[u8], FTermChurch> {
     |(_, _, x, _, _, _, y)| tlam(x, y))(input)
 }
 
-fn parse_app(input: &[u8]) -> IResult<&[u8], FTermChurch> { map(separated_pair(parse_term_prec2, multispace1, parse_term_prec2), |(a, b)| app(a, b))(input) }
+fn parse_app(input: &[u8]) -> IResult<&[u8], FTermChurch> { map(separated_pair(parse_term_prec2, multispace1, parse_term), |(a, b)| app(a, b))(input) }
 fn parse_tapp(input: &[u8]) -> IResult<&[u8], FTermChurch> { map(separated_pair(parse_term_prec3, multispace1, delimited(tuple((tag(b"["), multispace0)), parse_paren_type, tuple((multispace0, tag(b"]"))))), |(a, b)| tapp(a, b))(input)  }
 fn parse_term_prec3(input: &[u8]) -> IResult<&[u8], FTermChurch> { alt((parse_var, parse_lam, parse_tlam, delimited(tag(b"("), parse_term, tag(b")"))))(input) }
 fn parse_term_prec2(input: &[u8]) -> IResult<&[u8], FTermChurch> { alt((parse_tapp, parse_term_prec3))(input) }
@@ -76,8 +76,13 @@ fn test_parse_terms() {
     f(b"lam x : nat -> nat => x", lam("x", nan.clone(), var("x")));
     f(b"lam x : forall x, x => x [x]", lam("x", forall("x", tvar("x")), tapp(var("x"), tvar("x"))));
     println!("{:?}", parse_term(b"(lam x : nat => x) ((((tlam X => lam f : X -> X => lam a : X => f (f a)) [nat]) (lam x : nat => succ (succ x))) 0)"));
-    f(b"lam 5 : nat => lam f : nat -> nat => (f f) 5", lam("5", tvar("nat"), lam("f", nan.clone(), app(app(var("f"), var("f")), var("5"))))); // should work without parens...
+    f(b"lam 5 : nat => lam f : nat -> nat => (f f) 5", lam("5", tvar("nat"), lam("f", nan.clone(), app(app(var("f"), var("f")), var("5")))));
+    // getting "f f 5" to parse as "(f f) 5" seems to require a rule like `parse_app -> parse_term multispace1 parse_term_prec2`, but that would be left-recursive
+    //f(b"f f 5", app(app(var("f"), var("f")), var("5")));
+    //f(b"lam 5 : nat => lam f : nat -> nat => f f 5", lam("5", tvar("nat"), lam("f", nan.clone(), app(app(var("f"), var("f")), var("5")))));
     f(b"lam 5 : nat => lam f : nat -> nat => f (f 5)", lam("5", tvar("nat"), lam("f", nan.clone(), app(var("f"), app(var("f"), var("5"))))));
     f(b"(tlam A => lam x : A => x) [nat] 0", app(tapp(tlam("A", lam("x", tvar("A"), var("x"))), tvar("nat")), var("0")));
     f(b"((tlam A => lam x : A => x) [nat]) 0", app(tapp(tlam("A", lam("x", tvar("A"), var("x"))), tvar("nat")), var("0")));
+    f(b"lam x : nat => x x", lam("x", tvar("nat"), app(var("x"), var("x"))));
+    f(b"lam x : nat => lam y : nat => x y", lam("x", tvar("nat"), lam("y", tvar("nat"), app(var("x"), var("y")))));
 }
